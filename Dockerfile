@@ -3,9 +3,10 @@ FROM python:3.9 as build-python
 
 RUN apt-get -y update \
   && apt-get install -y gettext \
-  # Cleanup apt cache
-  && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+  tmux
+  # # Cleanup apt cache
+  # && apt-get clean \
+  # && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
 COPY requirements_dev.txt /app/
@@ -68,4 +69,4 @@ GraphQL, Django, and ReactJS."                                                  
       org.opencontainers.image.authors="Saleor Commerce (https://saleor.io)"           \
       org.opencontainers.image.licenses="BSD 3"
 
-CMD ["gunicorn", "--bind", ":8000", "--workers", "4", "--worker-class", "saleor.asgi.gunicorn_worker.UvicornWorker", "saleor.asgi:application"]
+CMD ["gunicorn", "--config", "gunicorn_config.py", "--bind", ":8000", "--workers", "4", "--worker-class", "saleor.asgi.gunicorn_worker.UvicornWorker", "saleor.asgi:application"]
