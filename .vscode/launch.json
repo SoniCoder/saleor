@@ -1,28 +1,22 @@
 {
-    // Użyj funkcji IntelliSense, aby uzyskać informacje o możliwych atrybutach.
-    // Najedź kursorem, aby wyświetlić opisy istniejących atrybutów.
-    // Aby uzyskać więcej informacji, odwiedź stronę: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Saleor",
+            "name": "Saleor (Gunicorn)",
             "type": "python",
             "request": "launch",
-            "module": "uvicorn",
+            "module": "gunicorn",
             "args": [
-                "saleor.asgi:application",
-                "--lifespan=off"
-            ]
-        },
-        {
-            "name": "Celery (worker)",
-            "type": "python",
-            "request": "launch",
-            "module": "celery",
-            "args": [
-                "--app=saleor.celeryconf:app",
-                "worker",
-                "--beat"
+                "--bind",
+                ":8000",
+                "--config",
+                "gunicorn_config.py",
+                "--workers",
+                "4",
+                "--worker-class",
+                "saleor.asgi.gunicorn_worker.UvicornWorker",
+                "--reload",
+                "saleor.asgi:application"
             ]
         }
     ]

@@ -22,11 +22,12 @@ from ....product.models import (
 )
 from ...channel.dataloaders import ChannelBySlugLoader
 from ...core.dataloaders import BaseThumbnailBySizeAndFormatLoader, DataLoader
+from ...account.dataloaders import AccessibleChannelsByUserIdLoader
 
 ProductIdAndChannelSlug = tuple[int, str]
 VariantIdAndChannelSlug = tuple[int, str]
 VariantIdAndChannelId = tuple[int, Optional[int]]
-
+from promise import Promise
 
 class CategoryByIdLoader(DataLoader[int, Category]):
     context_key = "category_by_id"
@@ -77,23 +78,59 @@ class ProductChannelListingByIdLoader(DataLoader[int, ProductChannelListing]):
         return [product_channel_listings.get(key) for key in keys]
 
 
+# class ProductChannelListingByProductIdLoader(DataLoader[int, ProductChannelListing]):
+#     context_key = "productchannelisting_by_product"
+
+#     def batch_load(self, keys):
+#         product_channel_listings = ProductChannelListing.objects.using(
+#             self.database_connection_name
+#         ).filter(product_id__in=keys)
+#         product_id_variant_channel_listings_map = defaultdict(list)
+#         for product_channel_listing in product_channel_listings.iterator():
+#             product_id_variant_channel_listings_map[
+#                 product_channel_listing.product_id
+#             ].append(product_channel_listing)
+#         return [
+#             product_id_variant_channel_listings_map.get(product_id, [])
+#             for product_id in keys
+#         ]
+
 class ProductChannelListingByProductIdLoader(DataLoader[int, ProductChannelListing]):
     context_key = "productchannelisting_by_product"
 
     def batch_load(self, keys):
-        product_channel_listings = ProductChannelListing.objects.using(
-            self.database_connection_name
-        ).filter(product_id__in=keys)
-        product_id_variant_channel_listings_map = defaultdict(list)
-        for product_channel_listing in product_channel_listings.iterator():
-            product_id_variant_channel_listings_map[
-                product_channel_listing.product_id
-            ].append(product_channel_listing)
-        return [
-            product_id_variant_channel_listings_map.get(product_id, [])
-            for product_id in keys
-        ]
+        # Fetch accessible channels for the requestor
+        def get_user_accessible_channels(ctx, user):
+            if user is None:
+                return Promise.resolve([])  # Return an empty promise
+            return AccessibleChannelsByUserIdLoader(ctx).load(user.id)
 
+        accessible_channels_promise = get_user_accessible_channels(self.context, self.context.user)
+
+        def filter_channel_listings(accessible_channels):
+            # Prepare a set of accessible channel IDs
+            accessible_channel_ids = {channel.id for channel in accessible_channels}
+
+            # Query ProductChannelListing and filter by accessible channels
+            product_channel_listings = ProductChannelListing.objects.using(
+                self.database_connection_name
+            ).filter(product_id__in=keys, channel_id__in=accessible_channel_ids)
+
+            # Map product IDs to their respective channel listings
+            product_id_variant_channel_listings_map = defaultdict(list)
+            for product_channel_listing in product_channel_listings.iterator():
+                product_id_variant_channel_listings_map[
+                    product_channel_listing.product_id
+                ].append(product_channel_listing)
+
+            # Return the filtered listings for each product ID
+            return [
+                product_id_variant_channel_listings_map.get(product_id, [])
+                for product_id in keys
+            ]
+
+        # Resolve the accessible channels and apply the filtering
+        return accessible_channels_promise.then(filter_channel_listings)
 
 class ProductChannelListingByProductIdAndChannelSlugLoader(
     DataLoader[ProductIdAndChannelSlug, ProductChannelListing]

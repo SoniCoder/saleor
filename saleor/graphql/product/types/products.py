@@ -1445,6 +1445,41 @@ class Product(ChannelContextTypeWithMetadata[models.Product]):
     def resolve_channel_listings(root: ChannelContext[models.Product], info):
         return ProductChannelListingByProductIdLoader(info.context).load(root.node.id)
 
+    # @staticmethod
+    # def resolve_channel_listings(root: ChannelContext[models.Product], info):
+    #     from ...account.utils import get_user_accessible_channels
+    #     """
+    #     Resolve only the channel listings accessible to the user.
+    #     """
+    #     # requestor = get_user_or_app_from_context(info.context)
+    #     # if requestor is None or not requestor.is_authenticated:
+    #     #     # If the requestor is not authenticated, return an empty list.
+    #     #     return []
+
+    #     def filter_accessible_channels(all_listings, accessible_channels):
+    #         """
+    #         Filter the channel listings based on user-accessible channels.
+    #         """
+    #         accessible_channel_ids = {channel.id for channel in accessible_channels}
+    #         return [
+    #             listing
+    #             for listing in all_listings
+    #             if listing.channel_id in accessible_channel_ids
+    #         ]
+
+    #     # Load all channel listings for the product
+    #     channel_listings_promise = ProductChannelListingByProductIdLoader(
+    #         info.context
+    #     ).load(root.node.id)
+
+    #     # Get the channels accessible to the user
+    #     accessible_channels_promise = get_user_accessible_channels(info, requestor)
+
+    #     # Combine both promises to filter the listings
+    #     return Promise.all([channel_listings_promise, accessible_channels_promise]).then(
+    #         lambda results: filter_accessible_channels(results[0], results[1])
+    #     )
+
     @staticmethod
     @traced_resolver
     def resolve_collections(root: ChannelContext[models.Product], info):

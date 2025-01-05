@@ -21,10 +21,73 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce
 
-from ..account.models import User
+from ..account.models import User, Group
 from ..app.models import App
 from ..channel.models import Channel
 from ..permission.utils import has_one_of_permissions
+from collections import defaultdict
+
+def get_group_to_channels_map(group_ids, database_connection_name):
+    groups_with_no_channel_restriction = Group.objects.using(
+        database_connection_name
+    ).filter(id__in=group_ids, restricted_access_to_channels=False)
+    groups_with_channel_restriction = Group.objects.using(
+        database_connection_name
+    ).filter(id__in=group_ids, restricted_access_to_channels=True)
+
+    group_to_channels: defaultdict[int, list[Channel]] = defaultdict(list)
+    if groups_with_channel_restriction:
+        group_to_channels = get_group_channels(
+            groups_with_channel_restriction.values("id"),
+            group_to_channels, database_connection_name
+        )
+
+    if groups_with_no_channel_restriction:
+        channels = list(Channel.objects.using(database_connection_name).all())
+        for group_id in groups_with_no_channel_restriction.values_list(
+            "id", flat=True
+        ):
+            group_to_channels[group_id] = channels
+
+    return group_to_channels
+
+def get_group_channels(group_ids, group_to_channels, database_connection_name):
+    GroupChannels = Group.channels.through
+    group_channels = GroupChannels.objects.using(
+        database_connection_name
+    ).filter(group_id__in=group_ids)
+    channels_in_bulk = Channel.objects.using(database_connection_name).in_bulk(
+        list(group_channels.values_list("channel_id", flat=True))
+    )
+
+    for group_id, channel_id in group_channels.values_list(
+        "group_id", "channel_id"
+    ):
+        group_to_channels[group_id].append(channels_in_bulk[channel_id])
+
+    return group_to_channels
+
+def get_accessible_channels_for_user(user, database_connection_name=None):
+    if not user or not user.is_authenticated:
+        return []
+
+    UserGroup = User.groups.through
+    user_groups = UserGroup._default_manager.using(database_connection_name).filter(
+        user_id=user.id
+    )
+    groups = Group.objects.using(database_connection_name).filter(
+        id__in=user_groups.values("group_id")
+    )
+
+    group_to_channels = get_group_to_channels_map(
+        groups.values_list("id", flat=True), database_connection_name
+    )
+
+    accessible_channels = set()
+    for group_id in user_groups.values_list("group_id", flat=True):
+        accessible_channels.update(group_to_channels[group_id])
+
+    return list(accessible_channels)
 
 
 class ProductsQueryset(models.QuerySet):
@@ -73,28 +136,50 @@ class ProductsQueryset(models.QuerySet):
             Exists(variants.filter(product_id=OuterRef("pk")))
         )
 
-    def visible_to_user(
-        self,
-        requestor: Union["User", "App", None],
-        channel: Optional[Channel],
-        limited_channel_access: bool,
-    ):
-        """Determine which products should be visible to user.
+    # def visible_to_user(
+    #     self,
+    #     requestor: Union["User", "App", None],
+    #     channel: Optional[Channel],
+    #     limited_channel_access: bool,
+    # ):
+    #     """Determine which products should be visible to user.
 
-        For user without permission we require channel to be passed to determine which
-        products are visible to user.
-        For user with permission we can return:
-        - all products if the channel is not passed and the query is not limited
-          to the provided channel.
-            (channel=None, limited_channel_access=False)
-        - no products if the channel is not passed and the query is limited
-          to the provided channel.
-            (channel=None, limited_channel_access=True)
-        - all products assigned to the channel if the channel is passed and
-          the query is limited to the provided channel.
-            (channel=Channel, limited_channel_access=True)
-        """
-        from .models import ALL_PRODUCTS_PERMISSIONS, ProductChannelListing
+    #     For user without permission we require channel to be passed to determine which
+    #     products are visible to user.
+    #     For user with permission we can return:
+    #     - all products if the channel is not passed and the query is not limited
+    #       to the provided channel.
+    #         (channel=None, limited_channel_access=False)
+    #     - no products if the channel is not passed and the query is limited
+    #       to the provided channel.
+    #         (channel=None, limited_channel_access=True)
+    #     - all products assigned to the channel if the channel is passed and
+    #       the query is limited to the provided channel.
+    #         (channel=Channel, limited_channel_access=True)
+    #     """
+    #     from .models import ALL_PRODUCTS_PERMISSIONS, ProductChannelListing
+
+    #     if has_one_of_permissions(requestor, ALL_PRODUCTS_PERMISSIONS):
+    #         if limited_channel_access:
+    #             if channel:
+    #                 channel_listings = (
+    #                     ProductChannelListing.objects.using(self.db)
+    #                     .filter(channel_id=channel.id)
+    #                     .values("id")
+    #                 )
+    #                 return self.filter(
+    #                     Exists(channel_listings.filter(product_id=OuterRef("pk")))
+    #                 )
+    #             return self.none()
+    #         return self.all()
+    #     if not channel:
+    #         return self.none()
+    #     return self.published_with_variants(channel)
+
+    def visible_to_user(
+        self, requestor: Union["User", "App", None], channel: Optional[Channel], limited_channel_access: bool
+    ):
+        from .models import ProductChannelListing, ALL_PRODUCTS_PERMISSIONS
 
         if has_one_of_permissions(requestor, ALL_PRODUCTS_PERMISSIONS):
             if limited_channel_access:
@@ -108,7 +193,19 @@ class ProductsQueryset(models.QuerySet):
                         Exists(channel_listings.filter(product_id=OuterRef("pk")))
                     )
                 return self.none()
+
+            accessible_channels = get_accessible_channels_for_user(requestor, self.db)
+            if accessible_channels:
+                return self.filter(
+                    Exists(
+                        ProductChannelListing.objects.using(self.db)
+                        .filter(channel_id__in=[channel.id for channel in accessible_channels])
+                        .filter(product_id=OuterRef("pk"))
+                    )
+                )
+
             return self.all()
+
         if not channel:
             return self.none()
         return self.published_with_variants(channel)

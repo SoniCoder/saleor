@@ -438,10 +438,15 @@ class ProductQueries(graphene.ObjectType):
         )
 
         limited_channel_access = False if channel is None else True
+        
         if channel is None and not has_required_permissions:
             channel = get_default_channel_slug_or_graphql_error(
                 allow_replica=info.context.allow_replica
             )
+
+        # # Test Code
+        # limited_channel_access = True
+        # channel = 'laxmi-gents-parlour'
 
         def _resolve_product(channel_obj):
             product = resolve_product(

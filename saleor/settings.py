@@ -771,6 +771,14 @@ GRAPHQL_QUERY_MAX_COMPLEXITY = int(
     os.environ.get("GRAPHQL_QUERY_MAX_COMPLEXITY", 50000)
 )
 
+import datetime
+
+GRAPHQL_JWT = {
+    "JWT_EXPIRATION_DELTA": datetime.timedelta(hours=24),  # Token expires after 24 hours
+    "JWT_REFRESH_EXPIRATION_DELTA": datetime.timedelta(days=7),  # Refresh token expires after 7 days
+    "JWT_AUTH_HEADER_PREFIX": "Authorization-Bearer",  # Prefix used in the Authorization header
+}
+
 # Max number entities that can be requested in single query by Apollo Federation
 # Federation protocol implements no securities on its own part - malicious actor
 # may build a query that requests for potentially few thousands of entities.

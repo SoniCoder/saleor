@@ -156,6 +156,18 @@ class AccessibleChannelsByUserIdLoader(BaseAccessibleChannels):
 
         return [list(user_to_channels[user_id]) for user_id in keys]
 
+# class AccessibleChannelsByUserIdLoader(BaseAccessibleChannels):
+#     context_key = "accessiblechannels_by_user"
+
+#     def batch_load(self, keys):
+#         from .utils import get_accessible_channels_for_user  # Import the utility
+
+#         return [
+#             get_accessible_channels_for_user(
+#                 User.objects.get(pk=user_id), self.database_connection_name
+#             )
+#             for user_id in keys
+#         ]
 
 class RestrictedChannelAccessByUserIdLoader(DataLoader):
     context_key = "restrictedchannelaccess_by_user"

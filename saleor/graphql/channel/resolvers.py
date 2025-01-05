@@ -32,7 +32,42 @@ def resolve_channel(info, id: Optional[str], slug: Optional[str]):
     return None
 
 
+# def resolve_channels(info):
+#     return models.Channel.objects.using(
+#         get_database_connection_name(info.context)
+#     ).all()
+
 def resolve_channels(info):
-    return models.Channel.objects.using(
-        get_database_connection_name(info.context)
-    ).all()
+    """
+    Resolves the list of channels accessible to the user.
+
+    Returns only channels the user has permissions for.
+    """
+    from ...graphql.account.dataloaders import AccessibleChannelsByUserIdLoader
+
+    # Retrieve the requestor (user or app) from the context
+    requestor = info.context.user
+
+    # Check if the requestor is a staff user or an app
+    if is_app(info.context):
+        # For staff or apps, return all channels
+        return models.Channel.objects.using(
+            get_database_connection_name(info.context)
+        ).all()
+
+    # For regular users, retrieve accessible channels
+    if requestor and hasattr(requestor, "id"):
+        accessible_channels_promise = AccessibleChannelsByUserIdLoader(
+            info.context
+        ).load(requestor.id)
+
+        def filter_accessible_channels(accessible_channels):
+            accessible_channel_ids = [channel.id for channel in accessible_channels]
+            return models.Channel.objects.using(
+                get_database_connection_name(info.context)
+            ).filter(id__in=accessible_channel_ids)
+
+        return accessible_channels_promise.then(filter_accessible_channels)
+
+    # If no valid requestor is found, return an empty queryset
+    return models.Channel.objects.none()
